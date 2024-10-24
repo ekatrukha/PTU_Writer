@@ -52,7 +52,7 @@ import ij.plugin.*;
 import ij.util.Tools;
 
 
-public class PTU_Reader_ implements PlugIn{
+public class PTU_Writer_ implements PlugIn{
 
 	 // some type field constants
     final static int tyEmpty8 	   = -65528;//= hex2dec("FFFF0008");
@@ -1600,6 +1600,14 @@ public class PTU_Reader_ implements PlugIn{
 					
 		
 		return isPhoton;
+	}
+	
+	
+	public static void main( final String[] args )
+	{
+		new ImageJ();
+		PTU_Writer_ wri = new PTU_Writer_();
+		wri.run( "" );
 	}
 	/*
 	nsync= recordData&0x3FF;//lowest 10 bits
