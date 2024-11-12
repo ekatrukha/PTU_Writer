@@ -78,7 +78,7 @@
  
     <properties>
         <!-- main-class>fiji.plugin.ComDet</main-class -->
-        <package-name>fiji.plugin.ZstackDepthColorCode</package-name>
+        <package-name>fiji.plugin.PTU_Writer</package-name>
         <license.licenseName>gpl_v3</license.licenseName>
         <license.copyrightOwners>Fiji distribution of ImageJ for the life sciences.</license.copyrightOwners>
     </properties>
@@ -91,6 +91,10 @@
     </repositories>
  
     <dependencies>
+		<dependency>
+			<groupId>net.imglib2</groupId>
+			<artifactId>imglib2-ij</artifactId>
+		</dependency>
         <!-- ImageJ dependencies -->
         <dependency>
             <groupId>net.imagej</groupId>

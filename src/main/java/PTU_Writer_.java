@@ -39,20 +39,29 @@
 
 import java.io.*;
 import java.nio.*;
-import java.nio.channels.FileChannel;
+import java.nio.channels.Channels;
+import java.nio.channels.WritableByteChannel;
+import java.nio.charset.Charset;
 import java.text.DecimalFormat;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 
+import net.imagej.ImgPlus;
+import net.imglib2.img.VirtualStackAdapter;
+import net.imglib2.type.NativeType;
+import net.imglib2.type.numeric.IntegerType;
+import net.imglib2.type.numeric.RealType;
+import net.imglib2.util.RealSum;
+
 import ij.*;
 import ij.gui.GenericDialog;
-import ij.io.OpenDialog;
+import ij.io.SaveDialog;
 import ij.measure.Calibration;
 import ij.plugin.*;
 import ij.util.Tools;
 
 
-public class PTU_Writer_ implements PlugIn{
+public class PTU_Writer_ <T extends IntegerType< T >> implements PlugIn {
 
 	 // some type field constants
     final static int tyEmpty8 	   = -65528;//= hex2dec("FFFF0008");
@@ -84,7 +93,7 @@ public class PTU_Writer_ implements PlugIn{
     final static int rtMultiHarpNT3   = 66311;   //hex2dec('00010307');% (SubID = $00 ,RecFmt: $01) (V1), T-Mode: $03 (T3), HW: $07 (MultiHarp150N)
     final static int rtMultiHarpNT2   = 66055;   //hex2dec('00010207');% (SubID = $00 ,RecFmt: $01) (V1), T-Mode: $02 (T2), HW: $07 (MultiHarp150N)
 
-    /** Main reading buffer **/
+    /** Main writing buffer **/
     ByteBuffer bBuff=null;
 
     /** total number of records **/
@@ -146,640 +155,232 @@ public class PTU_Writer_ implements PlugIn{
 	int dtimemax;
 	long ofltime;
 	
-	/**
-	 * @param args the command line arguments
-	 */
+	String sFileNameCounts;
+	ImgPlus< T > imgIn;
+	
+	FileOutputStream fos;
+	WritableByteChannel fc;
+	
+	public static String sVersion = "0.0.1";
+
+	
+	@SuppressWarnings( "unchecked" )
+	@Override
 	public void run(String arg) {
 
-		
-		int nBinnedFrameN=0;
-		int i;
+	
 		Calibration cal;
-
-		//*******************************************************************
-		// Open .pt3/.ptu file... 
-		//*******************************************************************
-
 		
-		OpenDialog opDiag= new OpenDialog("Choose ptu/pt3 files");//,dir);
-		if(opDiag.getPath()==null)
-			return;
-		File inputFileName=new File(opDiag.getPath());
-
-		String filename=inputFileName.getName();
-		String extension=filename.substring(filename.length()-3);
-		if(!(extension.toLowerCase().equals("ptu")||extension.toLowerCase().equals("pt3")))
+		
+		if(arg.equals(""))
 		{
-			IJ.error("Only ptu and pt3 format files are supported!");
-			return;
+			sFileNameCounts = IJ.getFilePath("Open TIF files with photon counts (Z=lifetime)...");
+		}
+		else
+		{
+			sFileNameCounts = arg;
 		}
 		
-		FileInputStream fis;
-		FileChannel fc;
+		final ImagePlus imp = IJ.openVirtual( sFileNameCounts );
+		//some basic checks
+		if(!(imp.getBitDepth()==8 || imp.getBitDepth()==16))
+		{
+			IJ.error( "Only 8- and 16-bit input images are supported!" );
+			return;
+		}
+		if(imp.getStackSize()>4096)
+		{
+			IJ.error( "Stack size should be below 4096 slices." );
+			return;			
+		}
+		
+		imgIn = ( ImgPlus< T > ) VirtualStackAdapter.wrap( imp );
+		//image parameters
+		//int 78020000
+		final int imW = imp.getWidth();
+		final int imH = imp.getHeight();
+		long Records = computeSum(imgIn);
+		cal = imp.getCalibration();
+		
+		//ask for frequency or time resolution
+		int nSyncRate = 80 *100000; //in Hz
+		double globTRes = 1./nSyncRate;
+		
+			
+		//get location to save
+		String sFilenameOut = sFileNameCounts + "_conv";
+		SaveDialog sd = new SaveDialog("Save ROIs ", sFilenameOut, ".ptu");
+		String path = sd.getDirectory();
+	    if (path==null)
+	      	return;
+	    sFilenameOut = path + sd.getFileName();
+	    
+	    File outputFileName = new File(sFilenameOut);
+	
+	    //let's write stuff
+		try 
+		{
+			fos = new FileOutputStream(outputFileName, false);
+			fc = Channels.newChannel( fos );
+			
+			//mandatory header
+			//IdentString
+			writeString("PQTTTR",8);
+			//formatVersionStr
+			writeString("00.0.1",8);
+			
+			//let's put some tags, 
+			//hopefully enough info for other readers to read
+			
+			writeStringTag("CreatorSW_Name", "PTU_Writer");
+			writeStringTag("CreatorSW_Version", sVersion);
+			writeLongTag("ImgHdr_PixX",imW);
+			writeLongTag("ImgHdr_PixY",imH);
+			writeDoubleTag("ImgHdr_PixResol",cal.pixelWidth);
+			writeLongTag("ImgHdr_LineStart",1);
+			writeLongTag("ImgHdr_LineStop",2);
+			writeLongTag("ImgHdr_Frame",3);
+			writeLongTag("ImgHdr_BiDirect",0);
+			writeLongTag("ImgHdr_SinCorrection",0);
+			writeLongTag("TTResult_SyncRate",nSyncRate);
+			writeDoubleTag("MeasDesc_GlobalResolution",globTRes);
+			writeLongTag("TTResultFormat_TTTRRecType",rtPicoHarpT3);
+			writeLongTag("TTResultFormat_BitsPerRecord",32);
+			writeEmptyTag("Header_End");
+			
+			long syncCountPerLine = 83200;
 
-		try {
-
-			fis = new FileInputStream(inputFileName);
-
-			fc = fis.getChannel();
-			int size = (int)fc.size();
-			bBuff = ByteBuffer.allocate(size);
-
-			fc.read(bBuff);
-			bBuff.flip();
-
-			System.out.println("file size: " + size);
-			//Prefs.set("PTU_Reader.LastDir",inputFileName.getPath());
-			//	tabByte= bBuff.array();
+			//long nsync = 0;
+			int nsync = 1300;
+			int chan = 1;
+			int markers = 1;
+			int dtime = 33;
+			
+			int recordData = 270599444;
+			int recDataTest = 0;
+			recDataTest = (nsync&0xFFFF) | ((dtime&0xFFF)<<16) | ((chan&0xF)<<28) | ((markers&0xF)<<16);
+//			recDataTest = (nsync&0xFFFF) | ((dtime&0xFFF)<<16) | ((chan&0xF)<<28) | ((markers&0xF)<<16);
+			
+			fos.close();
 
 		} catch (FileNotFoundException e) {
 			e.printStackTrace();
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
-
-		System.out.println("Buffer position: " + bBuff.position());
-
-		System.out.println("Buffer limit: " + bBuff.limit());
-		
-		//READING HEADER
-		IJ.log("PTU_Reader v.0.0.9");
-		stringInfo.append("PTU_Reader v.0.0.9\n");
-		
-		IJ.showStatus("Reading header info...");
-		//ptu format
-		if(extension.toLowerCase().equals("ptu"))
-		{
-			if(!readPTUHeader())
-			return;
-		}
-		//pt3 format
-		if(extension.toLowerCase().equals("pt3"))
-		{
-			if (!readPT3Header())
-				return;
-			nRecordType=rtPicoHarpT3;
-		}
-		
-		//store info
-		AcquisitionInfo="";
-		AcquisitionInfo=stringInfo.toString();
-		
-		//get current data position in the buffer		
-		int dataPosition=bBuff.position();
-		System.out.println("Data position: " + dataPosition);
-		
-		//STUB
-		//For some reason reading markers with values more that 2
-		// is wrong. 
-		//temporary stub
-		if(nLineStart>2)
-			nLineStart=4;
-		if(nLineStop>2)
-			nLineStop=4;	
-		if(nFrameMark>2 && nRecordType==rtPicoHarpT3)
-		{
-			nFrameMark=4;
-			bFrameMarkerPresent=true;
-		}
-		if(nFrameMark>2 && nRecordType!=rtPicoHarpT3)
-		{
-			//nFrameMark=4;
-			bFrameMarkerPresent=true;
-		}
-		
-		//****************************************************
-		//****************************************************
-		// Read T3 records (the actual data !)
-		// calculates frame number and syncCountPerLine
-		//****************************************************
-		//****************************************************
-
-		//int markers =0;
-		int frameNb =1;
-		
-		ofltime=0;
-		int curLine=0;
-		long curSync=0;
-		long syncStart=0;
-		nsync=0;
-		chan=0;
-		//int special =0;
-		int recordData =0;
-		int curPixel=0;
-		long syncCountPerLine=0;
-		//long syncCountPerFrame=0;
-		//long syncCountPerFrameLast=0;
-		int nLines=0;
-		dtime=0;
-		int dtimemin=Integer.MAX_VALUE;
-		dtimemax=Integer.MIN_VALUE;
-		boolean isPhoton;
-		
-		Boolean insideLine=false;
-		
-		long sync_start_count=0;
-		IJ.showStatus("Analyzing average acquisition speed/max time/channels...");
-		for(int n=0;n<Records;n++){	
-			byte[] record=new byte[4];
-			
-			bBuff.get(record,0,4);
-			recordData = ((record[3] & 0xFF) << 24) | ((record[2] & 0xFF) << 16) | ((record[1] & 0xFF) << 8) | (record[0] & 0xFF); //Convert from little endian
-			//picoharp
-			if(nRecordType==rtPicoHarpT3)
-			{
-				isPhoton= ReadPT3(recordData);
-			}
-			//multiharp
-			else
-			{
-				isPhoton= ReadHT3(recordData);
-			}
-			
-			if(isPhoton)
-				if(chan==0)
-				{
-					chan++;
-					chan--;
-				}
-				
-			
-			// it is marker!
-			if (!isPhoton)
-			{		
-					if (markers==nLineStart && sync_start_count==0)
-					{
-						sync_start_count=ofltime+nsync;
-						//System.out.println("sync_start_count "+sync_start_count);
-					}
-					else
-					{
-						if ((markers==nLineStop)&&(sync_start_count>0)){
-							syncCountPerLine+=ofltime+nsync-sync_start_count;
-							sync_start_count=0;
-							nLines++;
-						}
-					}
-					if(markers>=nFrameMark && bFrameMarkerPresent) 
-					{
-						frameNb+= 1;
-					}
-			}
-			//it is photon, let's mark channel presence
-			else
-			{
-				bChannels[chan-1]=true;
-				if(dtime<dtimemin)
-					dtimemin=dtime;
-				if(dtime>dtimemax)
-					dtimemax=dtime;
-			}
-			IJ.showProgress(n+1, Records);
-		}
-		IJ.showProgress(Records, Records);
-		//Is it the best idea? I'm not sure yet
-		syncCountPerLine/=nLines;				// Get the average sync signals per line in the recorded data
-		if(!bFrameMarkerPresent)
-			frameNb=(int)Math.ceil((double)nLines/(double)PixY)+1;
-		//else
-			//frameNb++;
-		
-	
-
-		
-			//syncCountPerFrame/=(frameNb-1);				// Get the average sync signals per frame in the recorded data
-		
-		//System.out.println("syncCountPerLine "+syncCountPerLine);
-		IJ.log("syncCountPerLine: "+syncCountPerLine);
-		IJ.log("Total frames: "+Integer.toString(frameNb-1));
-		IJ.log("Maximum time: "+Integer.toString(dtimemax));
-		
-		if(!loadDialog(frameNb-1))
-		{
-			bBuff.clear();
-			return;
-		}
-		//load range only
-		if(!bLoadRange)
-		{
-			nFrameMin=1;
-			nFrameMax=frameNb-1;
-			//nFrameMax=frameNb;
-		}
-			
-			nTotalBins=(int)Math.ceil((double)(nFrameMax-nFrameMin+1)/(double)nTimeBin);
-		
-		//initialize read variables
-		markers =0;		 
-		ofltime=0;
-		curLine=0;
-		curSync=0;
-		syncStart=0;
-		nsync=0;
-		chan=0;
-		recordData =0;
-		curPixel=0;
-		nLines=0;
-		dtime=0;
-		//Boolean frameStart=false;
-		//Boolean frameStart=true;
-		insideLine=false;
-		boolean frameUpdate=true;
-		sync_start_count=0;
-		
 		
 
-		String shortFilename="";
-		shortFilename=inputFileName.getName();
-
-		String[] parts =shortFilename.split(".pt");
-		shortFilename=parts[0];
-
-		
-		////////////////////////////////////////////////////////
-		////// Determines the number of channel containing data
-		////// and generates intensity 32-bit image stack
-		////////////////////////////////////////////////////////
-		
-		IJ.showStatus("Reading intensity values...");
-		bBuff.position(dataPosition);
-		
-		int [] dataCh = new int[4];
-		int datax=0;
-		/** array of intensity images for each channel **/
-		ImagePlus [] impInt=new ImagePlus[4];
-		
-		//initialize image stacks
-		for (i=0;i<4;i++)
-			if(bChannels[i])				
-				{impInt[i]=IJ.createImage(shortFilename+"_C"+Integer.toString(i+1)+"_Intensity_Bin="+Integer.toString(nTimeBin), "32-bit black", PixX,PixY, nTotalBins);}
-		
-		int nCurrFrame=1;
-		float tempval=0;
-		
-		for(int n=0;n<Records;n++){	
-			byte[] record=new byte[4];
-			bBuff.get(record,0,4);
-			 recordData = ((record[3] & 0xFF) << 24) | ((record[2] & 0xFF) << 16) | ((record[1] & 0xFF) << 8) | (record[0] & 0xFF); //Convert from little endian
-				if(nRecordType==rtPicoHarpT3)
-				{
-					isPhoton= ReadPT3(recordData);
-				}
-				//multiharp
-				else
-				{
-					isPhoton= ReadHT3(recordData);
-				}
-	  		    //nsync= recordData&0xFFFF;
-				//dtime=(recordData>>>16)&0xFFF;
-				//chan=(recordData>>>28)&0xF;
-				curSync=ofltime+nsync;
-				if(!isPhoton)
-				//if (chan== 15)
-				{		
-					/*markers =(recordData>>16)&0xF;
-					if(dtime==0 || markers==0)
-					{
-						ofltime+=WRAPAROUND;
-					}
-					else{*/
-					
-	
-						if(markers>=nFrameMark && bFrameMarkerPresent) 
-						{
-							nCurrFrame+= 1;
-							//nCurrFrame-= 1;
-							//frameStart=true;
-							frameUpdate=true;
-							curLine=0;
-						}
-						if (markers==nLineStart&&syncStart==0)
-						{
-							insideLine=true;
-							syncStart=curSync;
-							//nCountZ=0;
-						}
-						else
-						{
-							if (markers==nLineStop&&syncStart>0)
-							{
-								insideLine=false;
-								curLine++;						
-								syncStart=0;
-								if(curLine==(PixY)&&(!bFrameMarkerPresent))
-								{
-									nCurrFrame+= 1;
-									curLine=0;
-									frameUpdate=true;
-								}
-							}
-						}
-	
-	
-					//}
-
-			}else if (insideLine){
-				//nCountZ++;
-				curPixel=(int) Math.floor((curSync-syncStart)/(double)syncCountPerLine*PixX);
-
-				dataCh[chan-1]++;
-				//init new imageplus
-				/*if(!bDataPresent[chan-1])
-				{
-					bDataPresent[chan-1]=true;
-					impInt[chan-1]=IJ.createImage(shortFilename+"_C"+Integer.toString(chan)+"_Intensity_Bin="+Integer.toString(nTimeBin), "32-bit black", PixX,PixY, nTotalBins);
-				}*/
-				
-				if(nCurrFrame>=nFrameMin && nCurrFrame<=nFrameMax)
-				{
-					//read intensity values
-					if(frameUpdate)
-					{
-
-						nBinnedFrameN=(int)Math.ceil((double)(nCurrFrame-nFrameMin+1)/(double)nTimeBin);
-
-						//update all channels containing data
-						for (i=0;i<4;i++)
-						{
-							if(bChannels[i])
-								{impInt[i].setSliceWithoutUpdate(nBinnedFrameN);}						
-						}
-						frameUpdate=false;
-					}
-					tempval=Float.intBitsToFloat(impInt[chan-1].getProcessor().getPixel(curPixel, curLine));
-					tempval++;
-					impInt[chan-1].getProcessor().putPixel(curPixel, curLine, Float.floatToIntBits(tempval));
-				
-				}
-				
-			}	
-			IJ.showProgress(n+1, Records);
-		}// END of read record loop///////////////////
-
-		
-		if(bIntLTImages)
-		{
-			for(i=0;i<4;i++)
-			{
-				if(bChannels[i])	
-				{
-					impInt[i].setProperty("Info", AcquisitionInfo);
-					//image scale
-					if(dPixSize>0)
-					{
-						cal = impInt[i].getCalibration();
-						cal.setUnit("um");
-						cal.pixelWidth=dPixSize;
-						cal.pixelHeight=dPixSize;
-						impInt[i].setCalibration(cal);
-					}					
-					impInt[i].show();
-				}
-			}
-		}
-
-		//initialize read variables
-		markers =0;	
-		ofltime=0;
-		curLine=0;
-		curSync=0;
-		syncStart=0;
-		nsync=0;
-		chan=0;
-		recordData =0;
-		curPixel=0;
-		nLines=0;
-		dtime=0;
-		//frameStart=true;
-		insideLine=false;
-		sync_start_count=0;
-		nCurrFrame=1;
-
-		
-		////////////////////////////////////////////////////////
-		////// Get data and place them in images
-		////////////////////////////////////////////////////////
-		
-		/** array of stacks with ordered lifetime images for each channel **/
-		ImagePlus [] impCh = new ImagePlus[4];
-		/** array of average lifetime images for each channel **/
-		ImagePlus [] impAverT = new ImagePlus[4];
-
-		
-		
-		//////////////////////////////////////////////////
-		// Warning 8-bit images !!!!!!!!!!!!!!!!!!!!!!
-		/////////////////////////////////////////////////////
-		if(bLTOrder)
-		{
-			for(i=0;i<4;i++)
-				if(bChannels[i])
-				{
-					try {
-						
-					
-						if(nLTload==0)
-						{
-							impCh[i]=IJ.createImage(shortFilename+"_C"+Integer.toString(i+1)+"_LifetimeAll", "8-bit black", PixX,PixY, dtimemax+1);
-						}
-						else
-						{
-							String sLTtitle=shortFilename+"_C"+Integer.toString(i+1)+"_LifetimeAll_Bin="+Integer.toString(nTimeBin);
-							impCh[i]=IJ.createHyperStack(sLTtitle,PixX,PixY,1,dtimemax+1, nTotalBins, 8);//"8-bit black",  4096);										
-						}
-					}
-				
-					catch (Exception e) {
-						e.printStackTrace();
-					} catch (OutOfMemoryError e) 
-					{
-						IJ.log("Unable to allocate memory for lifetime stack (out of memory)!!\n Skipping lifetime loading.");
-						bLTOrder=false;
-					}
-
-				}
-			
-		}
-		if(bIntLTImages)
-		{
-			for(i=0;i<4;i++)
-				if(bChannels[i])
-					impAverT[i]=IJ.createImage(shortFilename+"_C"+Integer.toString(i+1)+"_LifeTimePFrame_Bin="+Integer.toString(nTimeBin), "32-bit black", PixX,PixY, nTotalBins);			
-		}
-				
-		
-		bBuff.position(dataPosition);
-
-		int tempint=0;
-		IJ.showStatus("Reading lifetime values...");
-		frameUpdate=true;
-		
-		for(int n=0;n<Records;n++){	
-			byte[] record=new byte[4];
-			bBuff.get(record,0,4);
-			recordData = ((record[3] & 0xFF) << 24) | ((record[2] & 0xFF) << 16) | ((record[1] & 0xFF) << 8) | (record[0] & 0xFF); //Convert from little endian
-
-			if(nRecordType==rtPicoHarpT3)
-			{
-				isPhoton= ReadPT3(recordData);
-			}
-			//multiharp
-			else
-			{
-				isPhoton= ReadHT3(recordData);
-			}
-			//nsync= recordData&0xFFFF;
-			//dtime=(recordData>>>16)&0xFFF;
-			//chan=(recordData>>>28)&0xF;
-			curSync=ofltime+nsync;
-			
-			if(!isPhoton){
-			//if (chan== 15){
-				
-				//markers =(recordData>>16)&0xF;
-				//if(dtime==0|| markers==0)
-				//{
-				//	ofltime+=WRAPAROUND;
-				//}
-				//else{
-					
-
-					if(markers>=nFrameMark && bFrameMarkerPresent) 
-					{
-						nCurrFrame+= 1;
-						//nCurrFrame-= 1;
-						//frameStart=true;
-						frameUpdate=true;
-						curLine=0;
-					}
-					if (markers==nLineStart&&syncStart==0)
-					{
-						insideLine=true;
-						syncStart=curSync;
-					}
-					else
-					{
-						if (markers==nLineStop&&syncStart>0)
-						{
-							insideLine=false;
-							curLine++;						
-							syncStart=0;
-							if(curLine==(PixY)&&(!bFrameMarkerPresent))
-							{
-								nCurrFrame+= 1;
-								curLine=0;
-								frameUpdate=true;
-							}
-						}
-					}
-				//}
-
-			}else if (insideLine){
-				
-				curPixel=(int) Math.floor((curSync-syncStart)/(double)syncCountPerLine*PixX);
-						
-				if(nCurrFrame>=nFrameMin && nCurrFrame<=nFrameMax)
-				{
-					nBinnedFrameN=(int)Math.ceil((double)(nCurrFrame-nFrameMin+1)/(double)nTimeBin);
-					if(bLTOrder)
-					{
-						
-						if(nLTload==0)
-						{
-							impCh[chan-1].setSliceWithoutUpdate(dtime+1);
-						}
-						else
-						{
-							impCh[chan-1].setPosition(1, dtime+1, nBinnedFrameN);
-						}
-						datax=impCh[chan-1].getProcessor().getPixel(curPixel, curLine);
-						datax++;
-						impCh[chan-1].getProcessor().putPixel(curPixel, curLine, datax);
-					}
-					if(bIntLTImages)
-					{
-						//update frame to the next one
-						if(frameUpdate)
-						{
-							//update images of all channels present
-							for(i=0;i<4;i++)
-							{
-								if(bChannels[i])
-								{
-									impAverT[i].setSliceWithoutUpdate(nBinnedFrameN);
-									impInt[i].setSliceWithoutUpdate(nBinnedFrameN);
-								}
-							}
-							frameUpdate=false;
-									
-						}
-						tempint = (int)Float.intBitsToFloat(impInt[chan-1].getProcessor().getPixel(curPixel, curLine));
-
-						//non zero photon number
-						if(tempint>0)
-						{
-							tempval=Float.intBitsToFloat(impAverT[chan-1].getProcessor().getPixel(curPixel, curLine));	
-							tempval+=(float)dtime/(float)tempint;//calculate average
-							impAverT[chan-1].getProcessor().putPixel(curPixel, curLine, Float.floatToIntBits(tempval));
-						}
-					}
-				}//if(nCurrFrame>=nFrameMin && nCurrFrame<=nFrameMax)
-
-			}
-			IJ.showProgress(n+1, Records);
-
-		}// END of read record loop///////////////////
-		IJ.showProgress(Records, Records);
-		IJ.showStatus("Reading lifetime values...done.");
-		bBuff.clear(); // Clears the byte buffer containing the file data
-
-		//set scale, add info and show images
-
-		if(bLTOrder)
-		{
-
-			for(i=0;i<4;i++)
-				if(bChannels[i])
-				{
-					impCh[i].setProperty("Info", AcquisitionInfo); 
-					//image scale
-					if(dPixSize>0)
-					{
-						cal = impCh[i].getCalibration();
-						cal.setUnit("um");
-						cal.pixelWidth=dPixSize;
-						cal.pixelHeight=dPixSize;
-						impCh[i].setCalibration(cal);
-					}					
-
-					impCh[i].show();
-				}
-		}
-		
-		if(bIntLTImages)
-		{
-
-			for(i=0;i<4;i++)
-				if(bChannels[i])
-				{
-					impAverT[i].setProperty("Info", AcquisitionInfo);
-					//image scale
-					if(dPixSize>0)
-					{
-						cal = impAverT[i].getCalibration();
-						cal.setUnit("um");
-						cal.pixelWidth=dPixSize;
-						cal.pixelHeight=dPixSize;
-						impAverT[i].setCalibration(cal);
-					}	
-					impAverT[i].show();
-				}
-		}
-		
-		
-		//	* /
 
 	}
+	
+	void writeStringTag(String sTagName, String sTagValue)throws IOException
+	{
+		//sTagIdent
+		writeString(sTagName,32);
+		//nTagIdx
+		writeInt(-1);
+		
+		//nTagTyp
+		writeInt( tyAnsiString );
+		
+		//nTagInt
+		writeLong(sTagValue.length());
+		
+		//sTagString
+		writeString(sTagValue,sTagValue.length());
+	}
+	
+	void writeLongTag(String sTagName, long nTagValue)throws IOException
+	{
+		//sTagIdent
+		writeString(sTagName,32);
+		//nTagIdx
+		writeInt(-1);
+		
+		//nTagTyp
+		writeInt( tyInt8 );
+		
+		//nTagInt
+		writeLong(nTagValue);
+	}
+	
+	void writeDoubleTag(String sTagName, double dTagValue)throws IOException
+	{
+		//sTagIdent
+		writeString(sTagName,32);
+		//nTagIdx
+		writeInt(-1);
+		
+		//nTagTyp
+		writeInt( tyFloat8 );
+		
+		//nTagDouble
+		writeDouble(dTagValue);
+	}
+	void writeEmptyTag(String sTagName)throws IOException
+	{
+		//sTagIdent
+		writeString(sTagName,32);
+		//nTagIdx
+		writeInt(-1);
+		
+		//nTagTyp
+		writeInt( tyEmpty8 );
+		
+		byte [] out = new byte[8];
+		fos.write(out);
+	}
+	
+	void writeString(String s, int nPad) throws IOException
+	{
+		byte [] out = new byte[nPad];
+		byte[] in = s.getBytes(Charset.forName("UTF-8"));
+		for(int i=0;i<in.length;i++)
+		{
+			out[i]=in[i];
+		}
+		fos.write(out);
+	}
+	
+	void writeInt(int n) throws IOException
+	{
+		bBuff = ByteBuffer.allocateDirect( 4 );
+		bBuff.order(ByteOrder.LITTLE_ENDIAN);
+		bBuff.asIntBuffer().put( n );
+		fc.write( bBuff );
+	}
+	
+	void writeLong(long n) throws IOException
+	{
+		bBuff = ByteBuffer.allocateDirect( 8 );
+		bBuff.order(ByteOrder.LITTLE_ENDIAN);
+		bBuff.asLongBuffer().put( n );
+		fc.write( bBuff );
+	}
+	
+	void writeDouble(double d) throws IOException
+	{
+		bBuff = ByteBuffer.allocateDirect( 8 );
+		bBuff.order(ByteOrder.LITTLE_ENDIAN);
+		bBuff.asDoubleBuffer().put( d );
+		fc.write( bBuff );
+	}
+	
+	public < T extends IntegerType< T > > long computeSum( final Iterable< T > input )
+	{
+		// Count all values using the RealSum class.
+		// It prevents numerical instabilities when adding up millions of pixels
+		long sum = 0;
+ 
+		for ( final T type : input )
+		{
+			sum += type.getInteger() ;	
+		}
+ 
+		return sum;
+	}
+	
+	
 	
     public static int hex2dec(String s) {
         String digits = "0123456789ABCDEF";
@@ -1607,7 +1208,7 @@ public class PTU_Writer_ implements PlugIn{
 	{
 		new ImageJ();
 		PTU_Writer_ wri = new PTU_Writer_();
-		wri.run( "" );
+		wri.run( "/home/eugene/Desktop/projects/PTU_reader/20231117_image_sc/Example_image.sc_C1_LifetimeAll.tif" );
 	}
 	/*
 	nsync= recordData&0x3FF;//lowest 10 bits
