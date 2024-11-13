@@ -12,7 +12,7 @@
 		<relativePath />
     </parent>
  
-    <groupId>sc.fiji</groupId>
+    <groupId>nl.uu.science.cellbiology</groupId>
     <artifactId>PTU_Writer_</artifactId>
     <version>0.0.1</version>
  
@@ -77,8 +77,7 @@
     </ciManagement>
  
     <properties>
-        <!-- main-class>fiji.plugin.ComDet</main-class -->
-        <package-name>fiji.plugin.PTU_Writer</package-name>
+        <package-name>ptuwriter</package-name>
         <license.licenseName>gpl_v3</license.licenseName>
         <license.copyrightOwners>Fiji distribution of ImageJ for the life sciences.</license.copyrightOwners>
     </properties>

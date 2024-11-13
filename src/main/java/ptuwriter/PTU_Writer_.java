@@ -35,7 +35,7 @@
  * @author Eugene Katrukha, Utrecht University, Utrecht, the Netherlands (2017, ptu read, intensity and average lifetime stacks)
  */
 
-
+package ptuwriter;
 
 import java.io.*;
 import java.nio.*;
@@ -49,10 +49,7 @@ import net.imglib2.Cursor;
 import net.imglib2.IterableInterval;
 import net.imglib2.RandomAccessibleInterval;
 import net.imglib2.img.VirtualStackAdapter;
-import net.imglib2.img.display.imagej.ImageJFunctions;
 import net.imglib2.type.numeric.IntegerType;
-import net.imglib2.type.numeric.integer.UnsignedShortType;
-import net.imglib2.view.IntervalView;
 import net.imglib2.view.Views;
 
 import ij.*;
@@ -95,21 +92,23 @@ public class PTU_Writer_ <T extends IntegerType< T >> implements PlugIn {
 
     /** Main writing buffer **/
     ByteBuffer bBuff=null;
-
-  
-    
+    /** current nsync value (without accumulated global time) **/
     int nsync = 0;
+    /** channel number or if it is wraparound signal (chan == 15)**/
 	int chan = 0;
+	/** special marker value (line/frame start/stop)**/
 	int markers = 0;
+	/** lifetime count **/
 	int dtime = 0;
-	/** maximum time of photon arrival (int) **/
-	int dtimemax;
+	/** accumulated global time addition **/
 	long ofltime;
-	
+	/** marker of line start **/
 	int nLineStart = 1;
+	/** marker of line stop **/
 	int nLineStop = 2;
 	
 	String sFileNameCounts;
+	
 	ImgPlus< T > imgIn;
 	
 	FileOutputStream fos;
@@ -118,15 +117,11 @@ public class PTU_Writer_ <T extends IntegerType< T >> implements PlugIn {
 	public static String sVersion = "0.0.1";
 	long RecordsTest = 0;
 	int x,y;
-	int nCount = 10;
 	
 	@SuppressWarnings( "unchecked" )
 	@Override
-	public void run(String arg) {
-
-	
-		Calibration cal;
-		
+	public void run(String arg) 
+	{		
 		
 		if(arg.equals(""))
 		{
@@ -153,19 +148,22 @@ public class PTU_Writer_ <T extends IntegerType< T >> implements PlugIn {
 		final int imH = imp.getHeight();
 		
 		long nTotPhotons = computeSum(imgIn);
+		
 		int nMaxPhotonPerPixel = (int)maxPhoton(imgIn);
+		
 		int nMaxPixelCount = nMaxPhotonPerPixel+2;
+		
 		//top boundary estimate
 		int syncCountPerLine = (nMaxPixelCount)*imW;
-		//let's count all records
+		//let's count all records:
+		//photon number + line start + line stop
 		long Records = nTotPhotons + imH*2;
 		//let's see how many wraparound events we need
 		int totWraps = ( int ) Math.floor(((long)syncCountPerLine)*imH/WRAPAROUND);
 		Records += totWraps;
-		//frame marker
+		//final frame end marker
 		Records++;
 		
-		cal = imp.getCalibration();
 		
 		//ask for frequency or time resolution
 		int nSyncRate = 80 *100000; //in Hz
@@ -201,7 +199,7 @@ public class PTU_Writer_ <T extends IntegerType< T >> implements PlugIn {
 			writeStringTag("CreatorSW_Version", sVersion);
 			writeLongTag("ImgHdr_PixX",imW);
 			writeLongTag("ImgHdr_PixY",imH);
-			writeDoubleTag("ImgHdr_PixResol",cal.pixelWidth);
+			writeDoubleTag("ImgHdr_PixResol",imp.getCalibration().pixelWidth);
 			writeLongTag("ImgHdr_LineStart",nLineStart);
 			writeLongTag("ImgHdr_LineStop",nLineStop);
 			writeLongTag("ImgHdr_Frame",3);
@@ -222,16 +220,12 @@ public class PTU_Writer_ <T extends IntegerType< T >> implements PlugIn {
 			ofltime = 0;
 			chan = 1;
 			int nPixVal;
-			Cursor< T> cursor;// = iterRAI.cursor();
+			Cursor< T> cursor;
 			for( y = 0; y<imH; y++)
-
-			//for(int y = 0; y<imH; y++)
 			{
 				//send start frame signal
 				writeLineStart();
 				for(x=0;x<imW; x++)
-
-	//			for(int x=0;x<imW; x++)
 				{
 					increaseNsync(1);
 					//get Z column at the current location
@@ -245,6 +239,7 @@ public class PTU_Writer_ <T extends IntegerType< T >> implements PlugIn {
 						nPixVal = cursor.get().getInteger();
 						while(nPixVal>0)
 						{
+							//not really needed?
 							//increaseGlobTime(1);
 							writePhoton(dtime);
 							nPixVal--;
@@ -258,11 +253,8 @@ public class PTU_Writer_ <T extends IntegerType< T >> implements PlugIn {
 						setNsyncGlob(y*syncCountPerLine+(x+1)* nMaxPixelCount);
 					}
 				}
-				setNsyncGlob((y+1)*syncCountPerLine);
-	
+				setNsyncGlob((y+1)*syncCountPerLine);	
 				writeLineStop();
-				//increaseGlobTime(1);
-				
 				
 			}
 			increaseNsync(1);
@@ -275,19 +267,14 @@ public class PTU_Writer_ <T extends IntegerType< T >> implements PlugIn {
 			e.printStackTrace();
 		}
 		
-
-
 	}
+	
+	
 	void writePhoton(int dtime_)  throws IOException
 	{
 		int record = makeRecord(nsync,chan,0,dtime_);
 		writeInt(record);
 		RecordsTest++;
-		if(nCount >0 && y==255)
-		{
-			nCount--;
-			System.out.println(ofltime +" "+nsync+" "+ x+" "+y+" "+dtime_);
-		}
 	}
 	
 	void setNsyncGlob(long newTime) throws IOException
@@ -305,6 +292,7 @@ public class PTU_Writer_ <T extends IntegerType< T >> implements PlugIn {
 			}
 		}
 	}
+	
 	void increaseNsync(int inc)  throws IOException
 	{
 		nsync += inc;
@@ -319,30 +307,35 @@ public class PTU_Writer_ <T extends IntegerType< T >> implements PlugIn {
 			nsync = nsync%WRAPAROUND;
 		}
 	}
+	
 	void writeWrapAround(int nsync_) throws IOException
 	{
 		int record = makeRecord(nsync_,15,0,0);
 		writeInt(record);
 		RecordsTest++;
 	}
+	
 	void writeLineStart() throws IOException
 	{
 		int record = makeRecord(nsync,15,nLineStart, 0);
 		writeInt(record);
 		RecordsTest++;
 	}
+	
 	void writeLineStop() throws IOException
 	{
 		int record = makeRecord(nsync,15,nLineStop, 0);
 		writeInt(record);
 		RecordsTest++;
 	}
+	
 	void writeFrameMarker() throws IOException
 	{
 		int record = makeRecord(nsync, 15, 4, 0);
 		writeInt(record);
 		RecordsTest++;
 	}
+	
 	int makeRecord(int nsync_, int chan_, int markers_, int dtime_)
 	{
 		return (nsync_&0xFFFF) | ((dtime_&0xFFF)<<16) | ((chan_&0xF)<<28) | ((markers_&0xF)<<16);
@@ -353,14 +346,11 @@ public class PTU_Writer_ <T extends IntegerType< T >> implements PlugIn {
 		//sTagIdent
 		writeString(sTagName,32);
 		//nTagIdx
-		writeInt(-1);
-		
+		writeInt(-1);		
 		//nTagTyp
-		writeInt( tyAnsiString );
-		
+		writeInt( tyAnsiString );		
 		//nTagInt
-		writeLong(sTagValue.length());
-		
+		writeLong(sTagValue.length());		
 		//sTagString
 		writeString(sTagValue,sTagValue.length());
 	}
@@ -370,11 +360,9 @@ public class PTU_Writer_ <T extends IntegerType< T >> implements PlugIn {
 		//sTagIdent
 		writeString(sTagName,32);
 		//nTagIdx
-		writeInt(-1);
-		
+		writeInt(-1);		
 		//nTagTyp
-		writeInt( tyInt8 );
-		
+		writeInt( tyInt8 );		
 		//nTagInt
 		writeLong(nTagValue);
 	}
@@ -384,24 +372,21 @@ public class PTU_Writer_ <T extends IntegerType< T >> implements PlugIn {
 		//sTagIdent
 		writeString(sTagName,32);
 		//nTagIdx
-		writeInt(-1);
-		
+		writeInt(-1);		
 		//nTagTyp
-		writeInt( tyFloat8 );
-		
+		writeInt( tyFloat8 );		
 		//nTagDouble
 		writeDouble(dTagValue);
 	}
+	
 	void writeEmptyTag(String sTagName)throws IOException
 	{
 		//sTagIdent
 		writeString(sTagName,32);
 		//nTagIdx
-		writeInt(-1);
-		
+		writeInt(-1);		
 		//nTagTyp
-		writeInt( tyEmpty8 );
-		
+		writeInt( tyEmpty8 );		
 		byte [] out = new byte[8];
 		fos.write(out);
 	}
@@ -476,39 +461,7 @@ public class PTU_Writer_ <T extends IntegerType< T >> implements PlugIn {
 	{
 		return Views.flatIterable( Views.hyperSlice( Views.hyperSlice( input, 1, j ),0,i));
 	}
-	
-    public static int hex2dec(String s) {
-        String digits = "0123456789ABCDEF";
-        s = s.toUpperCase();
-        int val = 0;
-        for (int i = 0; i < s.length(); i++) {
-            char c = s.charAt(i);
-            int d = digits.indexOf(c);
-            val = 16*val + d;
-        }
-        return val;
-    }
-   	
-	/** returns true if it is a photon data, returns false if it is a marker **/
-	boolean ReadPT3(int recordData)//, long nsync, int dtime, int chan, int markers)
-	{
-		boolean isPhoton=true;
-		nsync= recordData&0xFFFF; //lowest 16 bits
-		dtime=(recordData>>>16)&0xFFF;
-		chan=(recordData>>>28)&0xF;
-
-		if (chan== 15)
-		{	
-			isPhoton=false;
-			markers =(recordData>>16)&0xF;			
-			if(markers==0 || dtime==0)
-			{
-				ofltime+=WRAPAROUND;
-			}
-		}
-		return isPhoton;
-	}
-	
+	   	
 	
 	public static void main( final String[] args )
 	{
