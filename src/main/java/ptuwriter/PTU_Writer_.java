@@ -98,6 +98,8 @@ public class PTU_Writer_ <T extends IntegerType< T >> implements PlugIn {
 		{
 			sFileNameCounts = arg;
 		}
+		if(sFileNameCounts == null)
+			return;
 		
 		final ImagePlus imp = IJ.openVirtual( sFileNameCounts );
 		//some basic checks
@@ -139,7 +141,7 @@ public class PTU_Writer_ <T extends IntegerType< T >> implements PlugIn {
 		String sFilenameOut = sFileNameCounts + "_conv";
 		SaveDialog sd = new SaveDialog("Save ROIs ", sFilenameOut, ".ptu");
 		String path = sd.getDirectory();
-	    if (path==null)
+	    if (path == null)
 	      	return;
 	    sFilenameOut = path + sd.getFileName();
 	    
@@ -453,7 +455,8 @@ public class PTU_Writer_ <T extends IntegerType< T >> implements PlugIn {
 	{
 		new ImageJ();
 		PTU_Writer_ wri = new PTU_Writer_();
-		wri.run( "/home/eugene/Desktop/projects/PTU_reader/20231117_image_sc/Example_image.sc_C1_LifetimeAll_new.tif" );
+		wri.run("");
+		//wri.run( "/home/eugene/Desktop/projects/PTU_reader/20231117_image_sc/Example_image.sc_C1_LifetimeAll_new.tif" );
 	}
 
 }
