@@ -233,6 +233,7 @@ public class PTU_Writer_ <T extends IntegerType< T >> implements PlugIn {
 
 	//			for(int x=0;x<imW; x++)
 				{
+					increaseNsync(1);
 					//get Z column at the current location
 					IterableInterval< T > pixTime = getZColumn(imgIn,x,y);
 					//write all photons
@@ -251,21 +252,20 @@ public class PTU_Writer_ <T extends IntegerType< T >> implements PlugIn {
 						dtime ++;
 					}
 					//switch to the new pixel
-					if(y<(imH-1))
+					//if not the last pixel
+					if(x<(imW-1))
 					{
 						setNsyncGlob(y*syncCountPerLine+(x+1)* nMaxPixelCount);
-						//setGlobTime(y*syncCountPerLine+(x+1)* nMaxPixelCount);
 					}
 				}
 				setNsyncGlob((y+1)*syncCountPerLine);
-		     	//setGlobTime((y+1)*syncCountPerLine);
 	
 				writeLineStop();
 				//increaseGlobTime(1);
 				
 				
 			}
-			increaseGlobTime(1);
+			increaseNsync(1);
 			writeFrameMarker();
 			fos.close();
 
@@ -283,28 +283,13 @@ public class PTU_Writer_ <T extends IntegerType< T >> implements PlugIn {
 		int record = makeRecord(nsync,chan,0,dtime_);
 		writeInt(record);
 		RecordsTest++;
-		if(nCount >0 && ofltime>WRAPAROUND)
+		if(nCount >0 && y==255)
 		{
 			nCount--;
 			System.out.println(ofltime +" "+nsync+" "+ x+" "+y+" "+dtime_);
 		}
 	}
-	void setGlobTime(long newTime) throws IOException
-	{
-		if(newTime<ofltime)
-		{
-			System.err.println("something went wront, new time is smaller than old one");
-		}
-		if(newTime>ofltime)
-		{
-			increaseGlobTime((int)(newTime-ofltime));
-		}
-	}
-	void increaseGlobTime(int inc) throws IOException
-	{
-		ofltime+=inc;
-		increaseNsync(inc);
-	}
+	
 	void setNsyncGlob(long newTime) throws IOException
 	{
 		long currTime = ofltime+nsync;
@@ -529,7 +514,7 @@ public class PTU_Writer_ <T extends IntegerType< T >> implements PlugIn {
 	{
 		new ImageJ();
 		PTU_Writer_ wri = new PTU_Writer_();
-		wri.run( "/home/eugene/Desktop/projects/PTU_reader/20231117_image_sc/Example_image.sc_C1_LifetimeAll.tif" );
+		wri.run( "/home/eugene/Desktop/projects/PTU_reader/20231117_image_sc/Example_image.sc_C1_LifetimeAll_new.tif" );
 	}
 
 }
