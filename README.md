@@ -11,7 +11,7 @@ Reverse-engineering of [PTU_Reader](https://github.com/UU-cellbiology/PTU_Reader
 ## How to run plugin
 
 1. Click *PTU_Writer* line in ImageJ's *Plugins* menu.
-2. In the following dialog select a TIF Z-stack, where Z corresponds to the "lifetime counts".
+2. In the following dialog select a TIF Z-stack, where Z corresponds to the "lifetime counts". Only 8- and 16-bit single channel stacks are supported for now.
 3. Plugin will ask for "time resolution" metadata parameters:  
 ![dialog](./pics/dialog.png)   
 where *TTResult_SyncRate* is the laser repetition rate (in Hz) and   
