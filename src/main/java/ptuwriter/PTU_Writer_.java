@@ -1,40 +1,3 @@
-/**
- *
- *  PTU_Reader, ImageJ plugin for reading .ptu/.pt3 PicoQuant FLIM image data
- *  
- *  Aim : Open and convert Picoquant .ptu/.pt3 image files for FLIM analysis
- *  Use : Simply select your .ptu/.pt3 file and plugin will provide:
- *  1) Lifetime image stack for each channel (1-4). Each frame corresponds
- *     to the specific lifetime value, intensity of pixel is equal 
- *     to the number of photons with this lifetime (during whole acquisition)
- *  2) Intensity and average lifetime images/stacks. Intensity is just
- *     acquisition image/stack by frame (in photons) and in addition,
- *     plugin generates average lifetime image.
- *     Both can be binned. 
- *  
- *     
-    License:
-    This program is free software; you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation; either version 3 of the License, or
-    (at your option) any later version.
-
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with this program.  If not, see <http://www.gnu.org/licenses/>.
- *
- */
-
-/**
- *
- * @author Francois Waharte, PICT-IBiSA, UMR144 CNRS - Institut Curie, Paris France (2016, pt3 read)
- * @author Eugene Katrukha, Utrecht University, Utrecht, the Netherlands (2017, ptu read, intensity and average lifetime stacks)
- */
-
 package ptuwriter;
 
 import java.io.*;
@@ -53,8 +16,8 @@ import net.imglib2.type.numeric.IntegerType;
 import net.imglib2.view.Views;
 
 import ij.*;
+import ij.gui.GenericDialog;
 import ij.io.SaveDialog;
-import ij.measure.Calibration;
 import ij.plugin.*;
 
 
@@ -117,6 +80,10 @@ public class PTU_Writer_ <T extends IntegerType< T >> implements PlugIn {
 	public static String sVersion = "0.0.1";
 	long RecordsTest = 0;
 	int x,y;
+	//real time parameters for metadata
+	int nSyncRate = 80 *1000000; //in Hz
+	double globTRes = 1./nSyncRate;
+	double dMeasDesc_Resolution = globTRes/132.0;
 	
 	@SuppressWarnings( "unchecked" )
 	@Override
@@ -139,7 +106,6 @@ public class PTU_Writer_ <T extends IntegerType< T >> implements PlugIn {
 			IJ.error( "Only 8- and 16-bit input images are supported!" );
 			return;
 		}
-
 		
 		imgIn = ( ImgPlus< T > ) VirtualStackAdapter.wrap( imp );
 
@@ -164,11 +130,10 @@ public class PTU_Writer_ <T extends IntegerType< T >> implements PlugIn {
 		//final frame end marker
 		Records++;
 		
-		
-		//ask for frequency or time resolution
-		int nSyncRate = 80 *100000; //in Hz
-		double globTRes = 1./nSyncRate;
-		double dMeasDesc_Resolution = globTRes/132.0;
+		if(!timeParamsDialog())
+			return;
+
+		globTRes = 1./nSyncRate;
 			
 		//get location to save
 		String sFilenameOut = sFileNameCounts + "_conv";
@@ -255,7 +220,7 @@ public class PTU_Writer_ <T extends IntegerType< T >> implements PlugIn {
 				}
 				setNsyncGlob((y+1)*syncCountPerLine);	
 				writeLineStop();
-				
+				IJ.showProgress(y+1, imH);
 			}
 			increaseNsync(1);
 			writeFrameMarker();
@@ -266,7 +231,27 @@ public class PTU_Writer_ <T extends IntegerType< T >> implements PlugIn {
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
+		IJ.showProgress(imH, imH);
+		IJ.showStatus( "PTU Writer: Finished saving PTU file." );
+	}
+	
+	public boolean timeParamsDialog()
+	{
+		GenericDialog paramsDialog = new GenericDialog("Time/repetition parameters");
+		paramsDialog.addNumericField("TTResult_SyncRate", Prefs.get("PTU_Writer.nSyncRate", 80 *1000000), 0, 8, " Hz");
+		paramsDialog.addNumericField("MeasDesc_Resolution", Prefs.get("PTU_Writer.globTRes", 96), 0, 6, " ps");
+		paramsDialog.setResizable(false);
+		paramsDialog.showDialog();
+		if (paramsDialog.wasCanceled())
+	        return false;
 		
+		nSyncRate = (int) paramsDialog.getNextNumber();
+		Prefs.set("PTU_Writer.nSyncRate", nSyncRate);
+		globTRes = paramsDialog.getNextNumber();
+		Prefs.set("PTU_Writer.globTRes", globTRes);
+		//convert to seconds
+		globTRes *= Math.pow(10,-12);
+		return true;
 	}
 	
 	
@@ -463,6 +448,7 @@ public class PTU_Writer_ <T extends IntegerType< T >> implements PlugIn {
 	}
 	   	
 	
+	@SuppressWarnings( "rawtypes" )
 	public static void main( final String[] args )
 	{
 		new ImageJ();

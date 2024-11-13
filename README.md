@@ -12,9 +12,11 @@ Reverse-engineering of [PTU_Reader](https://github.com/UU-cellbiology/PTU_Reader
 
 1. Click *PTU_Writer* line in ImageJ's *Plugins* menu.
 2. In the following dialog select a TIF Z-stack, where Z corresponds to the "lifetime counts".
-3. Plugin will read file's header and provide you with following options:  
-![Menu](http://katpyxa.info/software/PTU_Reader/Menu2.png "Menu")
-4. Choose what images/stacks you want to load (see detailed description below) and click *OK*.
+3. Plugin will ask for "time resolution" metadata parameters:  
+![dialog](./pics/dialog.png)   
+where *TTResult_SyncRate* is the laser repetition rate (in Hz) and   
+*MeasDesc_Resolution* is the time between "lifetime counts", i.e. time between two neighboring input z-slices (in ps). 
+4. In a new (last) dialog choose the folder and name for the output PTU file.
 
 ## Updates history
 v.0.0.1 (2024.11) First release.
