@@ -19,7 +19,7 @@ where *TTResult_SyncRate* is the laser repetition rate (in Hz) and
 4. In a new (last) dialog choose the folder and name for the output PTU file.
 
 ## Updates history
-v.0.0.2 (2024.11) Added extra tags, now can be loaded via [readPTU_FLIM](https://github.com/SumeetRohilla/readPTU_FLIM).
+v.0.0.2 (2024.11) Added extra tags, now can be loaded via [readPTU_FLIM](https://github.com/SumeetRohilla/readPTU_FLIM).  
 v.0.0.1 (2024.11) First release.
 
 ---
