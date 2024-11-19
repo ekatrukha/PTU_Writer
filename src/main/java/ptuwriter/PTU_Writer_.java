@@ -77,7 +77,7 @@ public class PTU_Writer_ <T extends IntegerType< T >> implements PlugIn {
 	FileOutputStream fos;
 	WritableByteChannel fc;
 	
-	public static String sVersion = "0.0.1";
+	public static String sVersion = "0.0.2";
 	long RecordsTest = 0;
 	int x,y;
 	//real time parameters for metadata
@@ -162,8 +162,11 @@ public class PTU_Writer_ <T extends IntegerType< T >> implements PlugIn {
 			//let's put some tags, 
 			//hopefully enough info for other readers to read
 
+			writeLongTag("Measurement_SubMode",3);
 			writeStringTag("CreatorSW_Name", "PTU_Writer");
 			writeStringTag("CreatorSW_Version", sVersion);
+			writeLongTag("ImgHdr_Dimensions",3);
+			writeLongTag("ImgHdr_Ident",3);
 			writeLongTag("ImgHdr_PixX",imW);
 			writeLongTag("ImgHdr_PixY",imH);
 			writeDoubleTag("ImgHdr_PixResol",imp.getCalibration().pixelWidth);

@@ -14,7 +14,7 @@
  
     <groupId>nl.uu.science.cellbiology</groupId>
     <artifactId>PTU_Writer_</artifactId>
-    <version>0.0.1</version>
+    <version>0.0.2</version>
  
     <name>PTU Writer</name>
     <description>plugin to write PTU files with FLIM data</description>
