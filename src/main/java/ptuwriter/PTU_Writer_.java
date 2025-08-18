@@ -5,7 +5,7 @@ import java.nio.*;
 import java.nio.channels.Channels;
 import java.nio.channels.WritableByteChannel;
 import java.nio.charset.Charset;
-
+import java.util.UUID;
 
 import net.imagej.ImgPlus;
 import net.imglib2.Cursor;
@@ -77,7 +77,7 @@ public class PTU_Writer_ <T extends IntegerType< T >> implements PlugIn {
 	FileOutputStream fos;
 	WritableByteChannel fc;
 	
-	public static String sVersion = "0.0.3";
+	public static String sVersion = "0.0.4";
 	long RecordsTest = 0;
 	int x,y;
 	//real time parameters for metadata
@@ -162,7 +162,9 @@ public class PTU_Writer_ <T extends IntegerType< T >> implements PlugIn {
 			//let's put some tags, 
 			//hopefully enough info for other readers to read
 			//file GUID
-			writeStringTag("File_GUID","{5320c18e-0f82-4508-e5ae-b6a6e7719890}");
+			UUID uuid = UUID.randomUUID();
+	        //System.out.println("UUID=" + uuid.toString() );
+			writeStringTag("File_GUID","{"+uuid.toString()+"}");
 			writeLongTag("Measurement_Mode",3);
 			writeLongTag("Measurement_SubMode",3);
 			writeStringTag("CreatorSW_Name", "PTU_Writer");
@@ -340,11 +342,12 @@ public class PTU_Writer_ <T extends IntegerType< T >> implements PlugIn {
 		//nTagIdx
 		writeInt(-1);		
 		//nTagTyp
-		writeInt( tyAnsiString );		
+		writeInt( tyAnsiString );	
+		int nPadValue = ( int ) ( Math.ceil(sTagValue.length()/8.0)*8 );
 		//nTagInt
-		writeLong(sTagValue.length());		
+		writeLong(nPadValue);		
 		//sTagString
-		writeString(sTagValue,sTagValue.length());
+		writeString(sTagValue,nPadValue);
 	}
 	
 	void writeLongTag(String sTagName, long nTagValue)throws IOException

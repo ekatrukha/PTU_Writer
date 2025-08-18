@@ -16,13 +16,17 @@ Reverse-engineering of [PTU_Reader](https://github.com/UU-cellbiology/PTU_Reader
 ![dialog](./pics/dialog.png)   
 where *TTResult_SyncRate* is the laser repetition rate (in Hz) and   
 *MeasDesc_Resolution* is the time between "lifetime counts", i.e. time between two neighboring input z-slices (in ps). 
-4. In a new (last) dialog choose the folder and name for the output PTU file.
+4. In a new (last) dialog choose the folder and name for the output PTU file.   
+
+This plugin can be used to convert FLIM output (z-stacks) from [abberior](https://abberior.rocks/superresolution-confocal-systems/modules/timebow-imaging/) microscopes (Timebow modality).   
 
 ## Updates history
+v.0.0.4 (2025.08) Fixed tags output, now output can be loaded via [SymPhoTime](https://www.picoquant.com/products/category/software/symphotime-64-fluorescence-lifetime-imaging-and-correlation-software).   
 v.0.0.3 (2024.12) Added extra tags, now can be loaded via [ptufiles](https://github.com/cgohlke/ptufile).   
 v.0.0.2 (2024.11) Added extra tags, now can be loaded via [readPTU_FLIM](https://github.com/SumeetRohilla/readPTU_FLIM).  
 v.0.0.1 (2024.11) First release.
 
 ---
 Developed in [Cell Biology group](http://cellbiology.science.uu.nl/) of Utrecht University.  
-Email katpyxa @ gmail.com for any questions/comments/suggestions.
+Email katpyxa @ gmail.com for any questions/comments/suggestions.   
+Or tag @ekatrukha at [image.sc](https://forum.image.sc/) forum.
