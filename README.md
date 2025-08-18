@@ -18,7 +18,8 @@ where *TTResult_SyncRate* is the laser repetition rate (in Hz) and
 *MeasDesc_Resolution* is the time between "lifetime counts", i.e. time between two neighboring input z-slices (in ps). 
 4. In a new (last) dialog choose the folder and name for the output PTU file.   
 
-This plugin can be used to convert FLIM output (z-stacks) from [abberior](https://abberior.rocks/superresolution-confocal-systems/modules/timebow-imaging/) microscopes (Timebow modality).   
+This plugin can be used to convert FLIM output (z-stacks) from [abberior](https://abberior.rocks/superresolution-confocal-systems/modules/timebow-imaging/) microscopes (Timebow modality).  
+You would need to specify your laser repetition rate (40 MHz) and time resolution settings.   
 
 ## Updates history
 v.0.0.4 (2025.08) Fixed tags output, now output can be loaded via [SymPhoTime](https://www.picoquant.com/products/category/software/symphotime-64-fluorescence-lifetime-imaging-and-correlation-software).   
